@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Geschichten-Glücksrad</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1f2a52;--bg:#e6f4ff;--card:#fff}
+*{box-sizing:border-box}
+body{margin:0;min-height:100svh;background:var(--bg);color:var(--ink);font-family:"Fredoka","Trebuchet MS",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:16px 12px 32px}
+h1{font-size:clamp(1.6rem,5vw,2.6rem);margin:8px 0 4px;text-align:center}
+.sub{margin:0 0 16px;font-size:1.1rem;text-align:center}
+.legende{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:20px}
+.legende span{background:var(--card);border-radius:99px;padding:4px 12px 4px 8px;font-size:.95rem;display:flex;align-items:center;gap:6px}
+.legende i{width:14px;height:14px;border-radius:50%;display:inline-block}
+.stage{position:relative;width:min(94vw,620px);aspect-ratio:1}
+#rad{width:100%;height:100%;display:block;transition:transform 5.5s cubic-bezier(.12,.7,.12,1);filter:drop-shadow(0 8px 14px rgba(31,42,82,.25))}
+.zeiger{position:absolute;left:50%;top:-6px;width:0;height:0;transform:translateX(-50%);border-left:20px solid transparent;border-right:20px solid transparent;border-top:42px solid var(--ink);z-index:2;filter:drop-shadow(0 3px 2px rgba(0,0,0,.3))}
+#start{position:absolute;left:50%;top:50%;width:21%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;border:6px solid #fff;background:var(--ink);color:#fff;font:700 clamp(1rem,4.2vw,1.7rem) "Fredoka",sans-serif;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.35);z-index:2}
+#start:hover{background:#34437d}
+#start:disabled{opacity:.7;cursor:wait}
+button:focus-visible,dialog :focus-visible{outline:4px solid #ff6f91;outline-offset:3px}
+dialog{border:none;border-radius:24px;padding:0;width:min(94vw,560px);max-height:92svh;overflow:auto;color:var(--ink);font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+dialog::backdrop{background:rgba(31,42,82,.6)}
+.kopf{padding:14px 20px;color:#1f2a52;font-weight:700;font-size:1.1rem}
+.inhalt{padding:18px 22px 22px;text-align:center}
+.inhalt h2{margin:0 0 10px;font-size:1.7rem}
+.bild{width:100%;max-height:260px;object-fit:cover;border-radius:16px;margin-bottom:12px}
+.emoji{font-size:5rem;line-height:1.1}
+.text{font-size:1.3rem;line-height:1.5;text-align:left;margin:8px 0 12px;white-space:pre-line}
+.aufgabe{background:#f1f5ff;border-radius:14px;padding:10px 14px;font-size:1.1rem;font-weight:600;margin:12px 0}
+audio{width:100%;margin:8px 0}
+.fehlt{font-size:.9rem;color:#8a3b3b}
+.knoepfe{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.knoepfe button{font:600 1.1rem "Fredoka",sans-serif;border:none;border-radius:99px;padding:10px 22px;cursor:pointer;background:var(--ink);color:#fff}
+.knoepfe button.zweit{background:#e3e8f7;color:var(--ink)}
+@media (prefers-reduced-motion:reduce){#rad{transition-duration:.8s}}
+</style>
+</head>
+<body>
+<h1>Geschichten-Glücksrad</h1>
+<p class="sub">Drehe das Rad und erfinde eine Geschichte!</p>
+<div class="legende" id="legende"></div>
+<div class="stage">
+  <div class="zeiger"></div>
+  <canvas id="rad" width="900" height="900" aria-label="Glücksrad mit 24 Feldern"></canvas>
+  <button id="start">Los!</button>
+</div>
+
+<dialog id="karte" aria-live="polite"></dialog>
+
+<script>
+// ============================================================
+//  FELDER – HIER ÄNDERST DU ALLES (24 Felder, im Uhrzeigersinn)
+//  bild  = JPEG/PNG im Ordner "bilder/"   (fehlt die Datei, erscheint das Emoji)
+//  audio = MP3/WAV/OGG im Ordner "audio/" (zum Tauschen: Datei gleich benennen ODER Pfad ändern)
+// ============================================================
+
+const TYPEN = {
+  geschichte: { name: "Geschichtsanfang", farbe: "#ff6f91", aufgabe: "Wie geht die Geschichte weiter? Schreibe oder erzähle!" },
+  geraeusch:  { name: "Geräusch",         farbe: "#38bdf8", aufgabe: "Was hörst du? Erzähle oder schreibe, was gerade passiert!" },
+  vorlesen:   { name: "Vorgelesen",       farbe: "#ffc93c", aufgabe: "Hör gut zu! Schreibe oder male das Ende der Geschichte." },
+  musik:      { name: "Musik",            farbe: "#a78bfa", aufgabe: "Hör die Musik. Male, was du siehst, oder schreibe, was passiert!" }
+};
+
+// Kurzformen: g = Geschichtskarte, s = Geräusch, v = vorgelesener Text, m = Musik
+const g = (titel, emoji, bild, text)  => ({ typ: "geschichte", titel, emoji, bild, text });
+const s = (titel, emoji, bild, audio) => ({ typ: "geraeusch",  titel, emoji, bild, audio });
+const v = (titel, emoji, bild, audio) => ({ typ: "vorlesen",   titel, emoji, bild, audio });
+const m = (titel, emoji, bild, audio) => ({ typ: "musik",      titel, emoji, bild, audio });
+
+const FELDER = [
+  g("Das goldene Leuchten", "✨", "bilder/geschichte-1.jpg",
+    "Mia läuft durch den Wald und hört ein leises Rascheln.\nHinter einem dicken Baum leuchtet etwas Goldenes.\nWas ist das? Und was passiert, als Mia näher kommt?"),
+  s("Blätter im Wald", "🍂", "bilder/geraeusch-wald.jpg", "audio/geraeusch-wald.mp3"),
+  m("Musik 1", "🎵", "bilder/musik-1.jpg", "audio/musik-1.mp3"),
+  g("Der Drache im Keller", "🐉", "bilder/geschichte-2.jpg",
+    "Im Keller der Schule schnarcht etwas ganz laut.\nBen schleicht die Treppe hinunter.\nDa sitzt ein kleiner Drache auf dem Wäscheberg und niest Funken!"),
+  s("Jubel im Stadion", "🏟️", "bilder/geraeusch-stadion.jpg", "audio/geraeusch-stadion.mp3"),
+  v("Vorgelesen 1", "📖", "bilder/vorlesen-1.jpg", "audio/vorlesen-1.mp3"),
+  g("Die Schatzkarte", "🗺️", "bilder/geschichte-3.jpg",
+    "Lina findet in ihrem Schulranzen eine alte Schatzkarte.\nEin rotes Kreuz zeigt mitten auf den Schulhof.\nSie holt ihre Freunde. Was finden die Kinder?"),
+  s("Eisiger Wind", "❄️", "bilder/geraeusch-wind.jpg", "audio/geraeusch-wind.mp3"),
+  g("Der Brief der Eule", "🦉", "bilder/geschichte-4.jpg",
+    "Mitten in der Nacht klopft es am Fenster.\nDraußen sitzt eine Eule mit einem Brief im Schnabel.\nDer Brief ist für dich! Was steht darin?"),
+  s("Knarzende Tür", "🚪", "bilder/geraeusch-tuer.jpg", "audio/geraeusch-tuer.mp3"),
+  m("Musik 2", "🎶", "bilder/musik-2.jpg", "audio/musik-2.mp3"),
+  g("Das Wackel-Boot", "⛵", "bilder/geschichte-5.jpg",
+    "Tom paddelt mit seinem Boot auf den stillen See.\nPlötzlich wackelt das Wasser ganz stark.\nAus der Tiefe taucht etwas Riesiges auf!"),
+  s("Schulglocke", "🔔", "bilder/geraeusch-schulglocke.jpg", "audio/geraeusch-schulglocke.mp3"),
+  v("Vorgelesen 2", "📚", "bilder/vorlesen-2.jpg", "audio/vorlesen-2.mp3"),
+  g("Der fremde Planet", "🚀", "bilder/geschichte-6.jpg",
+    "Zoes Rakete landet auf einem fremden Planeten.\nDie Wiesen sind pink und die Steine singen leise.\nEin kleines Wesen winkt ihr zu. Was will es ihr zeigen?"),
+  s("Weihnachtsglöckchen", "🎄", "bilder/geraeusch-gloeckchen.jpg", "audio/geraeusch-gloeckchen.mp3"),
+  g("Der Zauberstift", "🖍️", "bilder/geschichte-7.jpg",
+    "Ein Kind findet einen Stift, der alles lebendig macht.\nEs malt einen Hund – und der springt vom Papier!\nWas malt das Kind als Nächstes?"),
+  s("Wellen am Boot", "🌊", "bilder/geraeusch-wellen.jpg", "audio/geraeusch-wellen.mp3"),
+  m("Musik 3", "🎼", "bilder/musik-3.jpg", "audio/musik-3.mp3"),
+  g("Der Schneemann", "⛄", "bilder/geschichte-8.jpg",
+    "Über Nacht steht ein Schneemann im Garten, den niemand gebaut hat.\nAm Morgen ist sein Schal weg.\nKleine Fußspuren führen zum Gartentor. Wohin gehen sie?"),
+  s("Flugzeug startet", "✈️", "bilder/geraeusch-flugzeug.jpg", "audio/geraeusch-flugzeug.mp3"),
+  v("Vorgelesen 3", "🎧", "bilder/vorlesen-3.jpg", "audio/vorlesen-3.mp3"),
+  m("Musik 4", "🎹", "bilder/musik-4.jpg", "audio/musik-4.mp3"),
+  v("Vorgelesen 4", "🌙", "bilder/vorlesen-4.jpg", "audio/vorlesen-4.mp3")
+];
+
+</script>
+<script>
+const cv = document.getElementById("rad"), ctx = cv.getContext("2d");
+const btn = document.getElementById("start"), dlg = document.getElementById("karte");
+const N = FELDER.length, SEG = 2 * Math.PI / N, C = cv.width / 2, R = C - 6;
+let rot = 0, dreht = false;
+
+document.getElementById("legende").innerHTML = Object.values(TYPEN)
+  .map(t => `<span><i style="background:${t.farbe}"></i>${t.name}</span>`).join("");
+
+function zeichne() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.font = "44px 'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  FELDER.forEach((f, i) => {
+    const a0 = -Math.PI / 2 + i * SEG, a1 = a0 + SEG, mid = a0 + SEG / 2;
+    ctx.beginPath(); ctx.moveTo(C, C); ctx.arc(C, C, R - 22, a0, a1); ctx.closePath();
+    ctx.fillStyle = TYPEN[f.typ].farbe; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+    const d = R * 0.66;
+    ctx.save();
+    ctx.translate(C + Math.cos(mid) * d, C + Math.sin(mid) * d);
+    ctx.rotate(mid + Math.PI / 2);
+    const rad = 38;
+    ctx.beginPath(); ctx.arc(0, 0, rad + 4, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+    if (f._img) {
+      ctx.save(); ctx.beginPath(); ctx.arc(0, 0, rad, 0, 7); ctx.clip();
+      const k = Math.max(2 * rad / f._img.width, 2 * rad / f._img.height);
+      ctx.drawImage(f._img, -f._img.width * k / 2, -f._img.height * k / 2, f._img.width * k, f._img.height * k);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#1f2a52"; ctx.fillText(f.emoji || "?", 0, 3);
+    }
+    ctx.restore();
+  });
+  // Rand mit Lämpchen
+  ctx.beginPath(); ctx.arc(C, C, R - 11, 0, 7); ctx.lineWidth = 22; ctx.strokeStyle = "#1f2a52"; ctx.stroke();
+  for (let i = 0; i < N; i++) {
+    const a = -Math.PI / 2 + i * SEG;
+    ctx.beginPath(); ctx.arc(C + Math.cos(a) * (R - 11), C + Math.sin(a) * (R - 11), 5, 0, 7);
+    ctx.fillStyle = "#ffe27a"; ctx.fill();
+  }
+}
+FELDER.forEach(f => {
+  if (!f.bild) return;
+  const im = new Image();
+  im.onload = () => { f._img = im; zeichne(); };
+  im.src = f.bild;
+});
+zeichne();
+
+function drehen() {
+  if (dreht) return;
+  dreht = true; btn.disabled = true;
+  rot += 360 * (6 + Math.floor(Math.random() * 3)) + Math.random() * 360;
+  cv.style.transform = `rotate(${rot}deg)`;
+}
+cv.addEventListener("transitionend", () => {
+  const a = ((rot % 360) + 360) % 360;
+  const idx = Math.floor(((360 - a) % 360) / (360 / N)) % N;
+  dreht = false; btn.disabled = false;
+  zeigeKarte(FELDER[idx]);
+});
+btn.addEventListener("click", drehen);
+
+function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+
+function zeigeKarte(f) {
+  const t = TYPEN[f.typ];
+  dlg.innerHTML = `
+    <div class="kopf" style="background:${t.farbe}">${t.name}</div>
+    <div class="inhalt">
+      <h2>${esc(f.titel)}</h2>
+      <div id="medium"></div>
+      ${f.text ? `<p class="text">${esc(f.text)}</p>` : ""}
+      ${f.audio ? `<audio id="ton" controls src="${f.audio}"></audio><div class="fehlt" id="fehlt" hidden>Audiodatei nicht gefunden: ${esc(f.audio)}</div>` : ""}
+      <div class="aufgabe">${t.aufgabe}</div>
+      <div class="knoepfe">
+        <button class="zweit" id="zu">Schließen</button>
+        <button id="nochmal">Nochmal drehen</button>
+      </div>
+    </div>`;
+  const med = dlg.querySelector("#medium");
+  if (f._img) { const im = document.createElement("img"); im.className = "bild"; im.src = f.bild; im.alt = ""; med.appendChild(im); }
+  else med.innerHTML = `<div class="emoji">${f.emoji || ""}</div>`;
+  const ton = dlg.querySelector("#ton");
+  if (ton) {
+    ton.addEventListener("error", () => { ton.hidden = true; dlg.querySelector("#fehlt").hidden = false; });
+    ton.play().catch(() => {});
+  }
+  dlg.querySelector("#zu").onclick = () => dlg.close();
+  dlg.querySelector("#nochmal").onclick = () => { dlg.close(); setTimeout(drehen, 250); };
+  dlg.showModal();
+}
+dlg.addEventListener("close", () => { const a = dlg.querySelector("audio"); if (a) a.pause(); });
+</script>
+</body>
+</html>
